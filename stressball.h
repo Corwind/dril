@@ -1,0 +1,7 @@
+#ifndef STRESSBALL_H
+#define STRESSBALL_H
+
+#define STRESSBALL_IOC_MAGIC 'k'
+#define STRESSBALL_GET_STATUS _IOW(STRESSBALL_IOC_MAGIC, 128, int)
+
+#endif
