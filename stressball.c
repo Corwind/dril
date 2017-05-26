@@ -13,7 +13,7 @@
 #define PRODUCT_ID 0x0020
 
 MODULE_DESCRIPTION("stressball");
-MODULE_AUTHOR("Guillaume Dore, dore_g");
+MODULE_AUTHOR("Guillaume Dore, Kaci Adjou");
 MODULE_LICENSE("GPL");
 
 struct usb_stressball {
