@@ -18,9 +18,9 @@ MODULE_LICENSE("GPL");
 
 struct usb_stressball {
   struct usb_device *udev;
-  int i1;
-  int i2;
-  int i3;
+  char i1;
+  char i2;
+  char i3;
 };
 
 static struct usb_driver stressball_driver;
@@ -39,9 +39,12 @@ static int get_stressball_infos(struct usb_stressball *str_dev)
   printk("stressball: entered %s\n", __FUNCTION__);
 
   memset (buff, 0, 8);
-  buff[7] = 0x02;
+  buff[0] = 0x0f;
+  buff[7] = 0x08;
 
-  ret = usb_control_msg(str_dev->udev, usb_sndctrlpipe(str_dev->udev, 0), 0x09, USB_TYPE_CLASS | USB_RECIP_INTERFACE, 0x200, 0x00, buff, 8, 2 * HZ);
+  ret = usb_control_msg(str_dev->udev, usb_sndctrlpipe(str_dev->udev, 0), 0x09,
+      USB_TYPE_CLASS | USB_RECIP_INTERFACE, 0x200, 0x00,
+      buff, 8, 2 * HZ);
 
   if (ret < 0) {
     printk (KERN_WARNING "%s: IN, ret = %d\n", __FUNCTION__, ret);
@@ -49,7 +52,20 @@ static int get_stressball_infos(struct usb_stressball *str_dev)
   }
 
   memset (buff, 0, 8);
-  ret = usb_interrupt_msg (str_dev->udev, usb_rcvintpipe (str_dev->udev, 1), buff, 8, &l, 2 * HZ);
+  buff[7] = 0x09;
+
+  ret = usb_control_msg(str_dev->udev, usb_sndctrlpipe(str_dev->udev, 0), 0x09,
+      USB_TYPE_CLASS | USB_RECIP_INTERFACE, 0x200, 0x00,
+      buff, 8, 2 * HZ);
+
+  if (ret < 0) {
+    printk (KERN_WARNING "%s: IN, ret = %d\n", __FUNCTION__, ret);
+    return ret;
+  }
+
+  memset (buff, 0, 8);
+
+  ret = usb_interrupt_msg (str_dev->udev, usb_rcvintpipe(str_dev->udev, 1), buff, 8, &l, 2 * HZ);
   if (ret < 0) {
     printk (KERN_WARNING "%s: usb_interrupt_msg(), ret = %d l= %d\n", __FUNCTION__, ret, l);
     return ret;
@@ -62,7 +78,6 @@ static int get_stressball_infos(struct usb_stressball *str_dev)
   }
 
   return 0;
-  return 0;
 }
 
 static ssize_t show_status(struct device *dev, struct device_attribute *attr, char *buff)
@@ -70,13 +85,21 @@ static ssize_t show_status(struct device *dev, struct device_attribute *attr, ch
   struct usb_interface *intf = to_usb_interface(dev); 
   struct usb_stressball *str_dev = usb_get_intfdata(intf);
 
+  char str_status[4];
+  int s;
+  str_status[0] = str_dev->i1;
+  str_status[1] = str_dev->i2;
+  str_status[2] = str_dev->i3;
+  str_status[3] = '\0';
+
+  s = *((int *)(&(str_status[0])));
+
   printk("stressball: entered %s\n", __FUNCTION__);
 
   get_stressball_infos(str_dev);
 
-  sprintf(buff, "Stressball: %d, %d, %d\n", str_dev->i1, str_dev->i2, str_dev->i3);
-
-  return 0;
+  return sprintf(buff, "%d\n", s);
+;
 }
 
 static DEVICE_ATTR(status, 0444, show_status, NULL);
@@ -89,10 +112,14 @@ static int stressball_open(struct inode *inode, struct file *file)
 
   printk("stressball: entered %s\n", __FUNCTION__);
   interface = usb_find_interface (&stressball_driver, minor);
+  /*
   if (!interface)
+  {
+    printk (KERN_WARNING "%s: no interface %p\n", __FUNCTION__, interface);
     return -ENODEV;
-
-  dev = usb_get_intfdata (interface);
+  }
+  */
+  dev = usb_get_intfdata(interface);
   if (dev == NULL) {
     printk (KERN_WARNING "%s: can't find device for minor %d\n", __FUNCTION__, minor);
     return -ENODEV;
@@ -113,7 +140,15 @@ static long stressball_ioctl(struct file *file, unsigned int cmd, unsigned long 
 {
 
   struct usb_stressball *str_dev;
+  char str_status[4];
+  int s;
   str_dev = file->private_data;
+  str_status[0] = str_dev->i1;
+  str_status[1] = str_dev->i2;
+  str_status[2] = str_dev->i3;
+  str_status[3] = '\0';
+
+  s = *((int *)(&(str_status[0])));
 
   printk("stressball: entered %s\n", __FUNCTION__);
   if (!str_dev)
@@ -124,11 +159,14 @@ static long stressball_ioctl(struct file *file, unsigned int cmd, unsigned long 
     case STRESSBALL_GET_STATUS:
       if (get_stressball_infos(str_dev) == 0)
       {
-        printk("IOCTL TOUSSA TOUSSA\n");
+        if (put_user(s, (long __user *)arg))
+        {
+          printk (KERN_WARNING "%s: copy_to_user() error\n", __FUNCTION__);
+          return -EFAULT;
+        }
       }
       break;
     default:
-      printk("IOCTL TOUSSA TOUSSA\n");
       break;
   }
   return 0;
@@ -154,12 +192,17 @@ static int stressball_probe(struct usb_interface *interface, const struct usb_de
 
   printk("stressball: entered %s\n", __FUNCTION__);
   ret = usb_register_dev(interface, &stressball_class_driver);
+
   str_dev = kmalloc (sizeof(struct usb_stressball), GFP_KERNEL);
+
   memset (str_dev, 0x00, sizeof (struct usb_stressball));
+
   str_dev->udev = usb_get_dev(udev);
   str_dev->i1 = str_dev->i2 = str_dev->i3 = 0;
   usb_set_intfdata(interface, str_dev);
+
   ret = device_create_file(&interface->dev, &dev_attr_status);
+
   return ret;
 }
 
